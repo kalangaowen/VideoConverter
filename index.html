@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>In-Browser H.264 MP4 Converter</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(51, 65, 85, 0.8);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(71, 85, 105, 1);
+        }
+    </style>
+
+    <!-- FFmpeg.wasm v0.11.6 UMD Bundle (Stable Browser Compatibility) -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col transition-colors duration-200">
+
+    <!-- Header -->
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-brand-600/20 text-brand-500 rounded-xl border border-brand-500/30">
+                    <i data-lucide="video" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                        MP4 Transcoder
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">WASM</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Convert MKV, WEBM, MOV, AVI to standard H.264 MP4 100% locally</p>
+                </div>
+            </div>
+
+            <!-- Header status badge -->
+            <div id="wasmStatusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700 text-slate-300">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" id="statusDot"></span>
+                <span id="statusText">Initializing Core...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8 flex flex-col gap-6">
+
+        <!-- Section 1: Upload Zone -->
+        <section id="uploadSection" class="transition-all duration-300">
+            <div id="dropZone" class="border-2 border-dashed border-slate-700 hover:border-brand-500/80 bg-slate-900/40 hover:bg-slate-900/80 rounded-2xl p-8 md:p-12 text-center transition-all cursor-pointer group flex flex-col items-center justify-center min-h-[300px]">
+                <input type="file" id="fileInput" accept="video/*,.mkv,.webm,.mov,.avi,.flv,.wmv,.3gp" class="hidden" />
+                
+                <div class="w-16 h-16 rounded-2xl bg-slate-800 group-hover:bg-brand-600/20 text-slate-400 group-hover:text-brand-400 flex items-center justify-center mb-4 transition-all border border-slate-700 group-hover:border-brand-500/30 group-hover:scale-110">
+                    <i data-lucide="upload-cloud" class="w-8 h-8"></i>
+                </div>
+                
+                <h2 class="text-lg font-semibold text-slate-200 mb-1 group-hover:text-white">
+                    Drop your video here, or <span class="text-brand-400 underline underline-offset-4">browse</span>
+                </h2>
+                <p class="text-xs text-slate-400 max-w-md mb-4">
+                    Supports WEBM, MOV, MKV, AVI, FLV, WMV and more. Video stays on your device—no uploads to any cloud or external server.
+                </p>
+
+                <div class="flex flex-wrap gap-2 justify-center text-[11px] text-slate-500">
+                    <span class="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/50">H.264 Video</span>
+                    <span class="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/50">AAC Audio</span>
+                    <span class="px-2 py-1 rounded bg-slate-800/80 border border-slate-700/50">100% Client-Side</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Editor & Settings Workspace -->
+        <div id="workspaceSection" class="hidden flex-col gap-6">
+
+            <!-- File Info Header Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="p-2.5 rounded-lg bg-slate-800 text-brand-400 border border-slate-700 shrink-0">
+                        <i data-lucide="file-video" class="w-6 h-6"></i>
+                    </div>
+                    <div class="truncate">
+                        <h3 id="fileName" class="font-semibold text-slate-100 truncate text-sm">video.mp4</h3>
+                        <div class="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                            <span id="fileSize">0 MB</span>
+                            <span>•</span>
+                            <span id="fileMeta">Format: Detecting...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="changeFileBtn" class="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    Choose Different File
+                </button>
+            </div>
+
+            <!-- Grid Layout: Video Previews + Transcode Settings -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                <!-- Column Left: Video Previews -->
+                <div class="lg:col-span-7 flex flex-col gap-4">
+                    
+                    <!-- Tab Switcher -->
+                    <div class="bg-slate-900 border border-slate-800 p-1 rounded-xl flex gap-1">
+                        <button id="tabSourceBtn" class="flex-1 py-2 text-xs font-medium rounded-lg bg-slate-800 text-slate-100 shadow-sm flex items-center justify-center gap-2 transition-all">
+                            <i data-lucide="play-circle" class="w-4 h-4 text-slate-400"></i>
+                            Original Source Video
+                        </button>
+                        <button id="tabResultBtn" disabled class="flex-1 py-2 text-xs font-medium rounded-lg text-slate-500 hover:text-slate-400 opacity-50 flex items-center justify-center gap-2 transition-all cursor-not-allowed">
+                            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+                            Converted H.264 Output
+                        </button>
+                    </div>
+
+                    <!-- Video Display Frame -->
+                    <div class="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden relative aspect-video flex items-center justify-center shadow-inner group">
+                        <video id="sourceVideo" controls class="w-full h-full object-contain"></video>
+                        <video id="resultVideo" controls class="w-full h-full object-contain hidden"></video>
+
+                        <div id="resultPlaceholder" class="hidden absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center text-center p-6 text-slate-500">
+                            <i data-lucide="film" class="w-12 h-12 mb-2 text-slate-600"></i>
+                            <p class="text-sm font-medium text-slate-400">No output generated yet</p>
+                            <p class="text-xs text-slate-600 mt-1 max-w-xs">Configure your export parameters on the right and click "Start Transcoding".</p>
+                        </div>
+                    </div>
+
+                    <!-- Output Download Action Box -->
+                    <div id="downloadBox" class="hidden bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-4 flex items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                                <i data-lucide="check-circle" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-emerald-300">Conversion Complete!</p>
+                                <p id="resultSizeInfo" class="text-xs text-emerald-400/80">Output size: -- MB</p>
+                            </div>
+                        </div>
+
+                        <a id="downloadBtn" download="converted.mp4" href="#" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold text-sm rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/20 shrink-0">
+                            <i data-lucide="download" class="w-4 h-4"></i>
+                            Download MP4
+                        </a>
+                    </div>
+
+                </div>
+
+                <!-- Column Right: Transcode Settings Panel -->
+                <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between gap-6">
+                    <div>
+                        <div class="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4">
+                            <i data-lucide="sliders" class="w-4 h-4 text-brand-400"></i>
+                            <h3 class="font-semibold text-slate-200 text-sm">Output Settings</h3>
+                        </div>
+
+                        <div class="space-y-4">
+                            <!-- Resolution Setting -->
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Target Resolution</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="resolution" value="original" checked class="peer hidden">
+                                        <div class="px-3 py-2 text-xs rounded-lg border border-slate-700 bg-slate-950/50 text-slate-300 peer-checked:border-brand-500 peer-checked:bg-brand-500/10 peer-checked:text-brand-300 text-center transition-all">Original</div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="resolution" value="1080" class="peer hidden">
+                                        <div class="px-3 py-2 text-xs rounded-lg border border-slate-700 bg-slate-950/50 text-slate-300 peer-checked:border-brand-500 peer-checked:bg-brand-500/10 peer-checked:text-brand-300 text-center transition-all">1080p (Full HD)</div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="resolution" value="720" class="peer hidden">
+                                        <div class="px-3 py-2 text-xs rounded-lg border border-slate-700 bg-slate-950/50 text-slate-300 peer-checked:border-brand-500 peer-checked:bg-brand-500/10 peer-checked:text-brand-300 text-center transition-all">720p (HD)</div>
+                                    </label>
+                                    <label class="cursor-pointer">
+                                        <input type="radio" name="resolution" value="480" class="peer hidden">
+                                        <div class="px-3 py-2 text-xs rounded-lg border border-slate-700 bg-slate-950/50 text-slate-300 peer-checked:border-brand-500 peer-checked:bg-brand-500/10 peer-checked:text-brand-300 text-center transition-all">480p (SD)</div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Quality / CRF Slider -->
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <label class="font-medium text-slate-300">Video Quality (CRF)</label>
+                                    <span id="crfValue" class="text-brand-400 font-mono font-semibold">23 (Balanced)</span>
+                                </div>
+                                <input type="range" id="crfRange" min="18" max="32" value="23" step="1" class="w-full accent-brand-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                                <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                                    <span>Higher Quality (18)</span>
+                                    <span>Smaller File (32)</span>
+                                </div>
+                            </div>
+
+                            <!-- Frame Rate (FPS) -->
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Frame Rate (FPS)</label>
+                                <select id="fpsSelect" class="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                    <option value="original">Match Original</option>
+                                    <option value="60">60 FPS</option>
+                                    <option value="30" selected>30 FPS (Recommended)</option>
+                                    <option value="24">24 FPS (Cinematic)</option>
+                                </select>
+                            </div>
+
+                            <!-- Audio Quality Options -->
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Audio Quality (AAC)</label>
+                                <select id="audioBitrate" class="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                                    <option value="192k" selected>192 kbps (Standard High)</option>
+                                    <option value="256k">256 kbps (Very High)</option>
+                                    <option value="128k">128 kbps (Compact)</option>
+                                    <option value="mute">Mute Audio Track</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Trigger Button -->
+                    <button id="startBtn" class="w-full py-3 px-4 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm rounded-xl transition-all shadow-lg shadow-brand-600/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i data-lucide="zap" class="w-4 h-4"></i>
+                        <span>Start Transcoding to MP4</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section 3: Progress & Real-time Console Log -->
+            <div id="progressContainer" class="hidden bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-4">
+                <div class="flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-2">
+                        <div id="progressSpinner" class="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span id="transcodeStateText" class="font-medium text-slate-200">Encoding video to H.264...</span>
+                    </div>
+                    <div class="flex items-center gap-4 text-slate-400 font-mono">
+                        <span>Elapsed: <strong id="timeElapsed" class="text-slate-200">00:00</strong></span>
+                        <span id="progressPercent" class="text-brand-400 font-bold text-sm">0%</span>
+                    </div>
+                </div>
+
+                <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                    <div id="progressBar" class="h-full bg-gradient-to-r from-brand-600 to-indigo-400 rounded-full transition-all duration-300 w-0"></div>
+                </div>
+
+                <div class="border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
+                    <div class="px-4 py-2 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
+                        <span class="text-xs font-mono text-slate-400 flex items-center gap-2">
+                            <i data-lucide="terminal" class="w-3.5 h-3.5 text-brand-400"></i>
+                            FFmpeg Output Log
+                        </span>
+                        <button id="toggleLogBtn" class="text-[11px] text-slate-400 hover:text-slate-200 underline">Hide Log</button>
+                    </div>
+                    <div id="logConsole" class="p-3 font-mono text-[11px] text-slate-400 h-32 overflow-y-auto custom-scrollbar leading-relaxed">
+                        <p class="text-slate-600">[System] Initializing console stream...</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 py-6 mt-auto bg-slate-950 text-slate-500 text-xs text-center">
+        <p>100% Client-Side Conversion powered by WebAssembly & FFmpeg. No media data leaves your browser.</p>
+    </footer>
+
+    <script>
+        // DOM Elements
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadSection = document.getElementById('uploadSection');
+        const workspaceSection = document.getElementById('workspaceSection');
+        
+        const fileNameEl = document.getElementById('fileName');
+        const fileSizeEl = document.getElementById('fileSize');
+        const fileMetaEl = document.getElementById('fileMeta');
+        const changeFileBtn = document.getElementById('changeFileBtn');
+
+        const sourceVideo = document.getElementById('sourceVideo');
+        const resultVideo = document.getElementById('resultVideo');
+        const resultPlaceholder = document.getElementById('resultPlaceholder');
+        
+        const tabSourceBtn = document.getElementById('tabSourceBtn');
+        const tabResultBtn = document.getElementById('tabResultBtn');
+
+        const crfRange = document.getElementById('crfRange');
+        const crfValue = document.getElementById('crfValue');
+        const fpsSelect = document.getElementById('fpsSelect');
+        const audioBitrate = document.getElementById('audioBitrate');
+        const startBtn = document.getElementById('startBtn');
+
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressPercent = document.getElementById('progressPercent');
+        const transcodeStateText = document.getElementById('transcodeStateText');
+        const timeElapsedEl = document.getElementById('timeElapsed');
+        const logConsole = document.getElementById('logConsole');
+        const toggleLogBtn = document.getElementById('toggleLogBtn');
+
+        const downloadBox = document.getElementById('downloadBox');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resultSizeInfo = document.getElementById('resultSizeInfo');
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+
+        // State Variables
+        let ffmpeg = null;
+        let selectedFile = null;
+        let isFFmpegLoaded = false;
+        let isTranscoding = false;
+        let timerInterval = null;
+        let startTime = 0;
+        let currentSourceUrl = null;
+        let currentResultUrl = null;
+
+        if (window.lucide) lucide.createIcons();
+
+        // 1. Initialize FFmpeg WASM v0.11.6 Engine
+        async function initFFmpeg() {
+            try {
+                if (typeof FFmpeg === 'undefined' || !FFmpeg.createFFmpeg) {
+                    throw new Error("FFmpeg script tag failed to load. Check internet connection.");
+                }
+
+                const { createFFmpeg, fetchFile } = FFmpeg;
+                
+                ffmpeg = createFFmpeg({
+                    log: true,
+                    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+                });
+
+                ffmpeg.setLogger(({ type, message }) => {
+                    appendLog(`[${type}] ${message}`);
+                });
+
+                ffmpeg.setProgress(({ ratio }) => {
+                    const percent = Math.min(Math.round(ratio * 100), 100);
+                    if (!isNaN(percent) && percent >= 0) {
+                        progressBar.style.width = `${percent}%`;
+                        progressPercent.textContent = `${percent}%`;
+                    }
+                });
+
+                statusText.textContent = 'Loading Engine...';
+                await ffmpeg.load();
+
+                isFFmpegLoaded = true;
+                statusDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+                statusText.textContent = "Engine Ready";
+                appendLog('[System] FFmpeg WASM Core loaded successfully.');
+
+            } catch (err) {
+                console.error("FFmpeg Load Error:", err);
+                statusDot.className = "w-2 h-2 rounded-full bg-rose-500";
+                statusText.textContent = "Engine Load Failed";
+                appendLog(`[ERROR] Engine load failed: ${err.message}`);
+                showToast("Engine load failed. Ensure you are running on a Web Server (HTTP/HTTPS).", "error");
+            }
+        }
+
+        // 2. Drag & Drop File Handlers
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-brand-500', 'bg-slate-900/90');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-brand-500', 'bg-slate-900/90');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-brand-500', 'bg-slate-900/90');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        changeFileBtn.addEventListener('click', resetSelection);
+
+        function handleFileSelect(file) {
+            selectedFile = file;
+
+            fileNameEl.textContent = file.name;
+            fileSizeEl.textContent = formatBytes(file.size);
+            fileMetaEl.textContent = `Type: ${file.type || 'Unknown Container'}`;
+
+            if (currentSourceUrl) URL.revokeObjectURL(currentSourceUrl);
+            currentSourceUrl = URL.createObjectURL(file);
+            sourceVideo.src = currentSourceUrl;
+
+            uploadSection.classList.add('hidden');
+            workspaceSection.classList.remove('hidden');
+            workspaceSection.classList.add('flex');
+
+            resetOutputState();
+        }
+
+        function resetSelection() {
+            if (isTranscoding) return;
+            selectedFile = null;
+            fileInput.value = '';
+            
+            if (currentSourceUrl) {
+                URL.revokeObjectURL(currentSourceUrl);
+                currentSourceUrl = null;
+            }
+            if (currentResultUrl) {
+                URL.revokeObjectURL(currentResultUrl);
+                currentResultUrl = null;
+            }
+
+            sourceVideo.src = '';
+            resultVideo.src = '';
+            
+            workspaceSection.classList.add('hidden');
+            workspaceSection.classList.remove('flex');
+            uploadSection.classList.remove('hidden');
+            progressContainer.classList.add('hidden');
+            downloadBox.classList.add('hidden');
+        }
+
+        function resetOutputState() {
+            downloadBox.classList.add('hidden');
+            if (currentResultUrl) {
+                URL.revokeObjectURL(currentResultUrl);
+                currentResultUrl = null;
+            }
+            resultVideo.src = '';
+            resultVideo.classList.add('hidden');
+            resultPlaceholder.classList.remove('hidden');
+            
+            tabResultBtn.disabled = true;
+            tabResultBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            switchTab('source');
+        }
+
+        // 3. Tab Switching
+        tabSourceBtn.addEventListener('click', () => switchTab('source'));
+        tabResultBtn.addEventListener('click', () => switchTab('result'));
+
+        function switchTab(tab) {
+            if (tab === 'source') {
+                sourceVideo.classList.remove('hidden');
+                resultVideo.classList.add('hidden');
+                resultPlaceholder.classList.add('hidden');
+
+                tabSourceBtn.classList.add('bg-slate-800', 'text-slate-100', 'shadow-sm');
+                tabSourceBtn.classList.remove('text-slate-400');
+
+                tabResultBtn.classList.remove('bg-slate-800', 'text-slate-100', 'shadow-sm');
+                tabResultBtn.classList.add('text-slate-400');
+            } else {
+                sourceVideo.classList.add('hidden');
+                tabSourceBtn.classList.remove('bg-slate-800', 'text-slate-100', 'shadow-sm');
+                tabSourceBtn.classList.add('text-slate-400');
+
+                tabResultBtn.classList.add('bg-slate-800', 'text-slate-100', 'shadow-sm');
+                tabResultBtn.classList.remove('text-slate-400');
+
+                if (resultVideo.src) {
+                    resultVideo.classList.remove('hidden');
+                    resultPlaceholder.classList.add('hidden');
+                } else {
+                    resultPlaceholder.classList.remove('hidden');
+                }
+            }
+        }
+
+        // 4. UI Controls
+        crfRange.addEventListener('input', (e) => {
+            const val = e.target.value;
+            let label = "Balanced";
+            if (val <= 20) label = "High Quality";
+            else if (val >= 28) label = "Small File";
+            crfValue.textContent = `${val} (${label})`;
+        });
+
+        toggleLogBtn.addEventListener('click', () => {
+            if (logConsole.classList.contains('hidden')) {
+                logConsole.classList.remove('hidden');
+                toggleLogBtn.textContent = 'Hide Log';
+            } else {
+                logConsole.classList.add('hidden');
+                toggleLogBtn.textContent = 'Show Log';
+            }
+        });
+
+        // 5. Transcoding Handler
+        startBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            if (!isFFmpegLoaded) {
+                showToast("FFmpeg engine is still loading...", "warning");
+                return;
+            }
+
+            isTranscoding = true;
+            startBtn.disabled = true;
+            changeFileBtn.disabled = true;
+            progressContainer.classList.remove('hidden');
+            downloadBox.classList.add('hidden');
+            
+            progressBar.style.width = '0%';
+            progressPercent.textContent = '0%';
+            transcodeStateText.textContent = "Writing file to memory...";
+            logConsole.innerHTML = '';
+            appendLog(`[System] Starting transcoding job for ${selectedFile.name}`);
+
+            startTimer();
+
+            let inputFileName = '';
+            let outputFileName = '';
+
+            try {
+                const { fetchFile } = FFmpeg;
+                
+                inputFileName = 'input_' + Date.now() + getExtension(selectedFile.name);
+                outputFileName = 'output_' + Date.now() + '.mp4';
+
+                appendLog(`[System] Loading file into WebAssembly memory...`);
+                ffmpeg.FS('writeFile', inputFileName, await fetchFile(selectedFile));
+
+                const args = ['-i', inputFileName, '-c:v', 'libx264'];
+
+                const selectedRes = document.querySelector('input[name="resolution"]:checked').value;
+                if (selectedRes !== 'original') {
+                    args.push('-vf', `scale=-2:${selectedRes}`);
+                }
+
+                args.push('-crf', crfRange.value);
+
+                const fpsVal = fpsSelect.value;
+                if (fpsVal !== 'original') {
+                    args.push('-r', fpsVal);
+                }
+
+                const audioVal = audioBitrate.value;
+                if (audioVal === 'mute') {
+                    args.push('-an');
+                } else {
+                    args.push('-c:a', 'aac', '-b:a', audioVal);
+                }
+
+                args.push('-movflags', '+faststart', outputFileName);
+
+                appendLog(`[FFmpeg Command] ffmpeg ${args.join(' ')}`);
+                transcodeStateText.textContent = "Encoding H.264 video...";
+
+                await ffmpeg.run(...args);
+
+                transcodeStateText.textContent = "Finalizing output...";
+                const data = ffmpeg.FS('readFile', outputFileName);
+                const convertedBlob = new Blob([data.buffer], { type: 'video/mp4' });
+
+                if (currentResultUrl) URL.revokeObjectURL(currentResultUrl);
+                currentResultUrl = URL.createObjectURL(convertedBlob);
+
+                resultVideo.src = currentResultUrl;
+                downloadBtn.href = currentResultUrl;
+                
+                const outputName = selectedFile.name.replace(/\.[^/.]+$/, "") + "_converted.mp4";
+                downloadBtn.download = outputName;
+
+                resultSizeInfo.textContent = `Output file size: ${formatBytes(convertedBlob.size)}`;
+
+                tabResultBtn.disabled = false;
+                tabResultBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                switchTab('result');
+
+                downloadBox.classList.remove('hidden');
+                appendLog(`[Success] Transcoding completed! Size: ${formatBytes(convertedBlob.size)}`);
+
+            } catch (err) {
+                console.error("Transcode Error:", err);
+                appendLog(`[ERROR] Transcoding failed: ${err.message}`);
+                showToast("An error occurred during video conversion.", "error");
+            } finally {
+                if (inputFileName) try { ffmpeg.FS('unlink', inputFileName); } catch (e) {}
+                if (outputFileName) try { ffmpeg.FS('unlink', outputFileName); } catch (e) {}
+
+                stopTimer();
+                isTranscoding = false;
+                startBtn.disabled = false;
+                changeFileBtn.disabled = false;
+            }
+        });
+
+        // 6. Helpers
+        function appendLog(msg) {
+            const p = document.createElement('p');
+            p.className = 'py-0.5 border-b border-slate-900/50 hover:bg-slate-900/50 font-mono';
+            p.textContent = msg;
+            logConsole.appendChild(p);
+            logConsole.scrollTop = logConsole.scrollHeight;
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        function getExtension(filename) {
+            const idx = filename.lastIndexOf('.');
+            return idx !== -1 ? filename.substring(idx) : '.mp4';
+        }
+
+        function startTimer() {
+            startTime = Date.now();
+            timeElapsedEl.textContent = "00:00";
+            timerInterval = setInterval(() => {
+                const seconds = Math.floor((Date.now() - startTime) / 1000);
+                const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+                const secs = (seconds % 60).toString().padStart(2, '0');
+                timeElapsedEl.textContent = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        function showToast(message, type = "info") {
+            const toast = document.createElement('div');
+            let bg = "bg-slate-800 border-slate-700 text-slate-100";
+            if (type === "error") bg = "bg-rose-950 border-rose-800 text-rose-200";
+            if (type === "warning") bg = "bg-amber-950 border-amber-800 text-amber-200";
+
+            toast.className = `fixed bottom-5 right-5 px-4 py-3 rounded-xl border shadow-xl text-xs flex items-center gap-2 z-50 transition-all transform translate-y-2 opacity-0 ${bg}`;
+            toast.innerHTML = `<i data-lucide="info" class="w-4 h-4"></i> <span>${message}</span>`;
+            document.body.appendChild(toast);
+            if (window.lucide) lucide.createIcons();
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        window.addEventListener('DOMContentLoaded', initFFmpeg);
+    </script>
+</body>
+</html>
